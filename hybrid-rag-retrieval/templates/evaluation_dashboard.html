@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evaluation Dashboard - Hybrid RAG System</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header h1 {
+            font-size: 2em;
+        }
+        
+        .nav-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .nav-btn {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            font-size: 0.9em;
+        }
+        
+        .nav-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        .main-content {
+            padding: 40px;
+        }
+        
+        .section {
+            margin-bottom: 40px;
+        }
+        
+        .section-title {
+            font-size: 1.5em;
+            color: #333;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        
+        .form-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .form-item {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .form-item label {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+        }
+        
+        .form-item input,
+        .form-item select {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 1em;
+            transition: border-color 0.3s ease;
+        }
+        
+        .form-item input:focus,
+        .form-item select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 5px rgba(102, 126, 234, 0.3);
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .btn {
+            padding: 12px 30px;
+            font-size: 1em;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 600;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+            flex: 1;
+        }
+        
+        .btn-primary:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-primary:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+            border: 1px solid #ddd;
+        }
+        
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        
+        .status-pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .status-running {
+            background: #cfe2ff;
+            color: #084298;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        .status-finished {
+            background: #d1e7dd;
+            color: #0f5132;
+        }
+        
+        .status-error {
+            background: #f8d7da;
+            color: #842029;
+        }
+        
+        .jobs-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        .jobs-table thead {
+            background: #f5f5f5;
+            border-bottom: 2px solid #ddd;
+        }
+        
+        .jobs-table th {
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .jobs-table td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .jobs-table tbody tr:hover {
+            background: #f9f9f9;
+        }
+        
+        .job-id {
+            font-family: monospace;
+            font-size: 0.85em;
+            color: #667eea;
+        }
+        
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .action-btn {
+            padding: 6px 12px;
+            font-size: 0.85em;
+            border: 1px solid #667eea;
+            background: white;
+            color: #667eea;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+        }
+        
+        .action-btn:hover {
+            background: #667eea;
+            color: white;
+        }
+        
+        .action-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+        
+        .empty-state i {
+            font-size: 3em;
+            margin-bottom: 20px;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .alert.show {
+            display: block;
+        }
+        
+        .alert-success {
+            background: #d1e7dd;
+            color: #0f5132;
+            border-left: 4px solid #198754;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            color: #842029;
+            border-left: 4px solid #dc3545;
+        }
+        
+        .alert-info {
+            background: #cfe2ff;
+            color: #084298;
+            border-left: 4px solid #0d6efd;
+        }
+        
+        .metrics-summary {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .metric-card {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .metric-label {
+            font-size: 0.85em;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        
+        .metric-value {
+            font-size: 1.8em;
+            font-weight: 600;
+            color: #667eea;
+        }
+        
+        .report-links {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }
+        
+        .report-links strong {
+            display: block;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        
+        .report-link {
+            display: inline-block;
+            margin-right: 15px;
+            margin-bottom: 8px;
+        }
+        
+        .report-link a {
+            color: #667eea;
+            text-decoration: none;
+            font-size: 0.9em;
+        }
+        
+        .report-link a:hover {
+            text-decoration: underline;
+        }
+        
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 768px) {
+            .form-group {
+                grid-template-columns: 1fr;
+            }
+            
+            .metrics-summary {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .header {
+                flex-direction: column;
+                gap: 20px;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>📊 Evaluation Dashboard</h1>
+                <p>Monitor and analyze RAG system performance</p>
+            </div>
+            <div class="nav-buttons">
+                <a href="/" class="nav-btn">← Back to RAG</a>
+                <a href="/evaluation" class="nav-btn">Refresh</a>
+            </div>
+        </div>
+        
+        <div class="main-content">
+            <!-- Alert Messages -->
+            <div id="alert-message" class="alert"></div>
+            
+            <!-- Start Evaluation Section -->
+            <div class="section">
+                <div class="section-title">Start New Evaluation</div>
+                <div class="form-group">
+                    <div class="form-item">
+                        <label for="dataset-path">Dataset Path</label>
+                        <input type="text" id="dataset-path" value="data/wikipedia_qa_100.json" 
+                               placeholder="Path to evaluation dataset JSON">
+                    </div>
+                    <div class="form-item">
+                        <label for="top-k">Top-K Results</label>
+                        <input type="number" id="top-k" value="5" min="1" max="20">
+                    </div>
+                    <div class="form-item">
+                        <label for="run-mode">Execution Mode</label>
+                        <select id="run-mode">
+                            <option value="async">Asynchronous (Background)</option>
+                            <option value="sync">Synchronous (Wait)</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="button-group">
+                    <button class="btn btn-primary" onclick="startEvaluation()" id="start-eval-btn">
+                        ▶ Start Evaluation
+                    </button>
+                    <button class="btn btn-secondary" onclick="refreshJobs()">
+                        🔄 Refresh
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Active Evaluations Section -->
+            <div class="section">
+                <div class="section-title">Active & Recent Evaluations</div>
+                <div id="jobs-container">
+                    <div class="empty-state">
+                        <p>No evaluations yet. Start one above!</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allJobs = {};
+        let jobRefreshInterval = null;
+
+        function showAlert(message, type = 'info') {
+            const alert = document.getElementById('alert-message');
+            alert.textContent = message;
+            alert.className = `alert show alert-${type}`;
+            setTimeout(() => alert.classList.remove('show'), 5000);
+        }
+
+        async function startEvaluation() {
+            const datasetPath = document.getElementById('dataset-path').value.trim();
+            const topK = parseInt(document.getElementById('top-k').value);
+            const runMode = document.getElementById('run-mode').value;
+            const runSync = runMode === 'sync';
+
+            if (!datasetPath) {
+                showAlert('Please enter a dataset path', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('start-eval-btn');
+            btn.disabled = true;
+            btn.textContent = '⏳ Starting...';
+
+            try {
+                const response = await fetch('/api/evaluate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        dataset_path: datasetPath,
+                        top_k: topK,
+                        run_sync: runSync
+                    })
+                });
+
+                const data = await response.json();
+                if (data.status === 'started') {
+                    allJobs[data.job_id] = {
+                        job_id: data.job_id,
+                        status: 'pending',
+                        created_at: Date.now() / 1000
+                    };
+                    showAlert(`✓ Evaluation started! Job ID: ${data.job_id.substring(0, 8)}...`, 'success');
+                    
+                    if (runSync) {
+                        // Poll for sync jobs
+                        await pollJobStatus(data.job_id, true);
+                    } else {
+                        // Auto-refresh for async
+                        startJobPolling();
+                    }
+                } else {
+                    showAlert('Failed to start evaluation: ' + (data.message || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                showAlert('Error: ' + error.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '▶ Start Evaluation';
+            }
+        }
+
+        async function pollJobStatus(jobId, isSync = false) {
+            const maxAttempts = isSync ? 600 : 60;
+            let attempts = 0;
+
+            const poll = async () => {
+                if (attempts >= maxAttempts) {
+                    showAlert('Job polling timeout', 'error');
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`/api/evaluate/status/${jobId}`);
+                    const job = await response.json();
+                    
+                    allJobs[jobId] = job;
+                    renderJobs();
+
+                    if (job.status === 'running' || job.status === 'pending') {
+                        attempts++;
+                        setTimeout(poll, isSync ? 2000 : 5000);
+                    } else if (job.status === 'finished') {
+                        showAlert('✓ Evaluation completed!', 'success');
+                    } else if (job.status === 'error') {
+                        showAlert('✗ Evaluation error: ' + (job.error || 'Unknown'), 'error');
+                    }
+                } catch (error) {
+                    console.error('Poll error:', error);
+                }
+            };
+
+            await poll();
+        }
+
+        function startJobPolling() {
+            if (jobRefreshInterval) clearInterval(jobRefreshInterval);
+            jobRefreshInterval = setInterval(refreshJobs, 5000);
+        }
+
+        async function refreshJobs() {
+            // Fetch jobs list from server (includes persisted finished jobs)
+            try {
+                const res = await fetch('/api/evaluate/jobs');
+                if (res.ok) {
+                    const payload = await res.json();
+                    if (payload.status === 'success' && Array.isArray(payload.jobs)) {
+                        allJobs = {};
+                        payload.jobs.forEach(j => {
+                            const key = j.job_id || (j.created_at ? 'job_' + Math.floor(j.created_at) : Math.random().toString(36).slice(2,8));
+                            allJobs[key] = Object.assign({job_id: key}, j);
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error('Error fetching job list:', err);
+            }
+
+            // For jobs that may be running, refresh their live status
+            for (const jobId of Object.keys(allJobs)) {
+                try {
+                    const response = await fetch(`/api/evaluate/status/${jobId}`);
+                    if (response.ok) {
+                        const job = await response.json();
+                        allJobs[jobId] = job;
+                    }
+                } catch (error) {
+                    // ignore
+                }
+            }
+
+            renderJobs();
+        }
+
+        function renderJobs() {
+            const container = document.getElementById('jobs-container');
+            const jobs = Object.values(allJobs).sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
+
+            if (jobs.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>No evaluations yet. Start one above!</p></div>';
+                return;
+            }
+
+            let html = '<table class="jobs-table"><thead><tr>' +
+                '<th>Job ID</th>' +
+                '<th>Status</th>' +
+                '<th>Created</th>' +
+                '<th>Dataset</th>' +
+                '<th>Top-K</th>' +
+                '<th>Actions</th>' +
+                '</tr></thead><tbody>';
+
+            jobs.forEach(job => {
+                const jobIdShort = job.job_id.substring(0, 8) + '...';
+                const statusClass = `status-${job.status}`;
+                const createdTime = new Date(job.created_at * 1000).toLocaleString();
+                const datasetName = (job.dataset_path || 'N/A').split('/').pop();
+                const topK = job.top_k || 5;
+
+                let actions = '';
+                if (job.status === 'finished') {
+                    actions = `
+                        <div class="action-buttons">
+                            <button class="action-btn" onclick="viewReport('${job.job_id}')">📄 View Report</button>
+                            <a href="/api/evaluate/download/${job.job_id}/evaluation_report.pdf" 
+                               class="action-btn" download>📥 PDF</a>
+                        </div>
+                        <div class="report-links">
+                            <strong>Download:</strong>
+                            <div class="report-link"><a href="/api/evaluate/download/${job.job_id}/evaluation_results.csv" download>CSV</a></div>
+                            <div class="report-link"><a href="/api/evaluate/download/${job.job_id}/evaluation_results.json" download>JSON</a></div>
+                            <div class="report-link"><a href="/api/evaluate/download/${job.job_id}/failures.csv" download>Failures</a></div>
+                        </div>
+                    `;
+                } else if (job.status === 'running') {
+                    actions = `<div class="status-badge status-running"><span class="loading-spinner"></span>Running...</div>`;
+                } else if (job.status === 'error') {
+                    actions = `<div style="color: #842029;"><small>${job.error || 'Unknown error'}</small></div>`;
+                }
+
+                html += `
+                    <tr>
+                        <td><span class="job-id">${jobIdShort}</span></td>
+                        <td><span class="status-badge ${statusClass}">${job.status.toUpperCase()}</span></td>
+                        <td><small>${createdTime}</small></td>
+                        <td><small>${datasetName}</small></td>
+                        <td>${topK}</td>
+                        <td>${actions}</td>
+                    </tr>
+                `;
+
+                // If finished, show summary metrics
+                if (job.status === 'finished' && job.summary) {
+                    html += `
+                        <tr style="background: #fafafa;">
+                            <td colspan="6">
+                                <div class="metrics-summary" style="margin: 0;">
+                                    <div class="metric-card">
+                                        <div class="metric-label">MRR</div>
+                                        <div class="metric-value">${(job.summary.MRR || 0).toFixed(4)}</div>
+                                    </div>
+                                    <div class="metric-card">
+                                        <div class="metric-label">Avg Semantic Similarity</div>
+                                        <div class="metric-value">${(job.summary.Avg_Semantic_Similarity || 0).toFixed(4)}</div>
+                                    </div>
+                                    <div class="metric-card">
+                                        <div class="metric-label">Avg Token Overlap</div>
+                                        <div class="metric-value">${(job.summary.Avg_Token_Overlap_Ratio || 0).toFixed(4)}</div>
+                                    </div>
+                                    <div class="metric-card">
+                                        <div class="metric-label">Avg Source Coverage</div>
+                                        <div class="metric-value">${(job.summary.Avg_Source_Coverage_Score || 0).toFixed(4)}</div>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        async function viewReport(jobId) {
+            try {
+                const response = await fetch(`/api/evaluate/report/${jobId}`);
+                if (!response.ok) throw new Error('Report not ready');
+                const data = await response.json();
+                
+                if (data.paths && data.paths.html) {
+                    // Open HTML report in new window
+                    window.open(`/api/evaluate/download/${jobId}/evaluation_report.html`, '_blank');
+                } else {
+                    showAlert('Report not yet available', 'info');
+                }
+            } catch (error) {
+                showAlert('Error loading report: ' + error.message, 'error');
+            }
+        }
+
+        // Initialize on load: fetch server-side job list and start polling
+        window.addEventListener('load', async () => {
+            await refreshJobs();
+            startJobPolling();
+        });
+
+        // Cleanup on unload
+        window.addEventListener('beforeunload', () => {
+            if (jobRefreshInterval) clearInterval(jobRefreshInterval);
+        });
+    </script>
+</body>
+</html>

@@ -10,3 +10,8 @@ transformers
 streamlit
 torch
 flask
+pandas
+matplotlib
+seaborn
+reportlab
+tqdm
