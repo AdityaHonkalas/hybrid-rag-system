@@ -116,6 +116,7 @@ def evaluate_dataset(
 
     iterator = tqdm(dataset, desc='Evaluating RAG System') if progress else dataset
     for item in iterator:
+        question_id = item.get('id') or str(uuid.uuid4())
         question = item.get('question', '')
         true_answer = (item.get('answer') or '').strip()
         true_sources = item.get('source_ids', []) or []
@@ -141,7 +142,8 @@ def evaluate_dataset(
             if source_match(doc, true_sources):
                 rank = idx
                 break
-        mrr_total += (1 / rank) if rank else 0.0
+        mrr_val = (1 / rank) if rank else 0.0
+        mrr_total += mrr_val
 
         # Precision@K
         top_k_docs = retrieved_docs[:top_k]
@@ -163,11 +165,13 @@ def evaluate_dataset(
         source_coverage_total += scs
 
         results_log.append({
+            'question_id': question_id,
             'question': question,
             'expected_answer': true_answer,
             'generated_answer': generated_answer,
             'correct_source': true_sources,
             'rank': rank,
+            'mrr': mrr_val,
             'hit': 1 if relevant_count > 0 else 0,
             'precision_at_k': relevant_count / top_k,
             'semantic_similarity': sem_sim,
@@ -191,7 +195,7 @@ def evaluate_dataset(
     return summary, results_log
 
 
-def generate_reports(summary: Dict, detailed: List[Dict], out_dir: str, top_k: int = 5) -> Dict:
+def generate_reports(summary: Dict, detailed: List[Dict], out_dir: str, top_k: int = 5, ablation_results: Optional[List[Dict]] = None) -> Dict:
     """Generate CSV, JSON, HTML and PDF reports with visualizations.
     Returns dict of generated file paths.
     """
@@ -260,6 +264,13 @@ def generate_reports(summary: Dict, detailed: List[Dict], out_dir: str, top_k: i
     failures_path = Path(out_dir) / 'failures.csv'
     failures.to_csv(failures_path, index=False, encoding='utf-8')
 
+    # Failure pattern analysis (simple heuristics)
+    pattern_counts = {
+        'zero_hit': int(((df['hit'] == 0)).sum()),
+        'low_semantic_similarity': int((df['semantic_similarity'] < 0.3).sum()),
+        'low_source_coverage': int((df['source_coverage_score'] < 0.5).sum())
+    }
+
     # Generate simple HTML summary
     html_path = Path(out_dir) / 'evaluation_report.html'
     with open(html_path, 'w', encoding='utf-8') as fh:
@@ -277,13 +288,38 @@ def generate_reports(summary: Dict, detailed: List[Dict], out_dir: str, top_k: i
             fh.write(f'<img src="{Path(img).name}" style="max-width:800px;">')
 
         fh.write('<h2>Failure Examples</h2>')
-        fh.write('<table border="1" cellpadding="5"><tr><th>Question</th><th>Expected</th><th>Generated</th><th>Semantic Similarity</th><th>Latency</th></tr>')
+        fh.write('<p>Simple failure pattern counts:</p>')
+        fh.write('<ul>')
+        for k, v in pattern_counts.items():
+            fh.write(f'<li><strong>{k}:</strong> {v}</li>')
+        fh.write('</ul>')
+
+        fh.write('<table border="1" cellpadding="5"><tr><th>Question ID</th><th>Question</th><th>Expected</th><th>Generated</th><th>Semantic Similarity</th><th>Token Overlap</th><th>Source Coverage</th><th>Latency</th></tr>')
         for _, row in failures.head(20).iterrows():
             fh.write('<tr>')
+            fh.write(f'<td>{row.get("question_id")}</td>')
             fh.write(f'<td>{row.get("question")}</td>')
             fh.write(f'<td>{row.get("expected_answer")}</td>')
             fh.write(f'<td>{row.get("generated_answer")}</td>')
             fh.write(f'<td>{row.get("semantic_similarity"):.3f}</td>')
+            fh.write(f'<td>{row.get("token_overlap_ratio"):.3f}</td>')
+            fh.write(f'<td>{row.get("source_coverage_score"):.3f}</td>')
+            fh.write(f'<td>{row.get("latency"):.2f}</td>')
+            fh.write('</tr>')
+        fh.write('</table>')
+
+        # Detailed results table (all questions)
+        fh.write('<h2>Detailed Results Table</h2>')
+        fh.write('<table border="1" cellpadding="5"><tr><th>Question ID</th><th>Question</th><th>Ground Truth</th><th>Generated Answer</th><th>MRR</th><th>Token Overlap</th><th>Source Coverage</th><th>Time (s)</th></tr>')
+        for _, row in df.iterrows():
+            fh.write('<tr>')
+            fh.write(f'<td>{row.get("question_id")}</td>')
+            fh.write(f'<td>{row.get("question")}</td>')
+            fh.write(f'<td>{row.get("expected_answer")}</td>')
+            fh.write(f'<td>{row.get("generated_answer")}</td>')
+            fh.write(f'<td>{row.get("mrr"):.3f}</td>')
+            fh.write(f'<td>{row.get("token_overlap_ratio"):.3f}</td>')
+            fh.write(f'<td>{row.get("source_coverage_score"):.3f}</td>')
             fh.write(f'<td>{row.get("latency"):.2f}</td>')
             fh.write('</tr>')
         fh.write('</table>')
@@ -331,6 +367,22 @@ def generate_reports(summary: Dict, detailed: List[Dict], out_dir: str, top_k: i
 
     c.save()
 
+    # Optional: ablation plot if ablation_results provided
+    if ablation_results:
+        try:
+            labels = [a.get('label') for a in ablation_results]
+            mrrs = [a.get('MRR', 0) for a in ablation_results]
+            plt.figure(figsize=(8, 4))
+            sns.barplot(x=labels, y=mrrs)
+            plt.title('Ablation Study: MRR by Setting')
+            plt.xticks(rotation=30)
+            ablation_path = Path(out_dir) / 'ablation_mrr.png'
+            plt.tight_layout()
+            plt.savefig(ablation_path)
+            images['ablation_mrr'] = str(ablation_path)
+            plt.close()
+        except Exception:
+            pass
     return {
         'json': str(json_path),
         'csv': str(csv_path),
