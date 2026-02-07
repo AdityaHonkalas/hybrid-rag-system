@@ -8,6 +8,7 @@ import os
 import evaluate_rag
 from hybrid_rag_system import *
 
+
 # ---------------------------------------------------------------
 # Initialize Flask App
 # ---------------------------------------------------------------
@@ -171,7 +172,7 @@ def start_evaluation():
     Returns a job_id for status tracking.
     """
     data = request.get_json() or {}
-    dataset_path = data.get('dataset_path', r'D:\Bits-MTech\Assignments\hybrid-rag-system\hybrid-rag-retrieval\data\wikipedia_qa_100.json')
+    dataset_path = data.get('dataset_path', r'path\to\hybrid-rag-system\data\wikipedia_qa_100_updated.json')
     top_k = int(data.get('top_k', 5))
     api_url = data.get('api_url', 'http://127.0.0.1:5000/api/query')
     init_url = data.get('init_url', 'http://127.0.0.1:5000/api/initialize')

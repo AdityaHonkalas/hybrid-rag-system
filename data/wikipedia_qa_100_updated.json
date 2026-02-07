@@ -1,0 +1,365 @@
+{
+  "dataset": "wikipedia_qa_100",
+  "data": [
+    {
+      "id": 1,
+      "question": "What branch of science studies matter and energy?",
+      "answer": "Physics",
+      "source_ids": [
+        "Physics"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 2,
+      "question": "Which science studies living organisms?",
+      "answer": "Biology",
+      "source_ids": [
+        "Biology"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 3,
+      "question": "What field focuses on chemical substances and reactions?",
+      "answer": "Chemistry",
+      "source_ids": [
+        "Chemistry"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 4,
+      "question": "What does astronomy primarily study?",
+      "answer": "Celestial objects and phenomena beyond Earth.",
+      "source_ids": [
+        "Astronomy"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 5,
+      "question": "What is the study of heredity called?",
+      "answer": "Genetics",
+      "source_ids": [
+        "Genetics"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 6,
+      "question": "Which science studies the nervous system?",
+      "answer": "Neuroscience",
+      "source_ids": [
+        "Neuroscience"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 7,
+      "question": "What branch of AI enables machines to learn from data?",
+      "answer": "Machine learning",
+      "source_ids": [
+        "Machine_learning"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 8,
+      "question": "What technology allows secure, decentralized record keeping?",
+      "answer": "Blockchain",
+      "source_ids": [
+        "Blockchain"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 9,
+      "question": "What war lasted from 1914 to 1918?",
+      "answer": "World War I",
+      "source_ids": [
+        "World_War_I"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 10,
+      "question": "Which revolution marked the shift to industrial manufacturing?",
+      "answer": "Industrial Revolution",
+      "source_ids": [
+        "Industrial_Revolution"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 11,
+      "question": "Which country has the Ganges river?",
+      "answer": "India",
+      "source_ids": [
+        "India"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 12,
+      "question": "What art form involves creating three-dimensional works?",
+      "answer": "Sculpture",
+      "source_ids": [
+        "Sculpture"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 13,
+      "question": "What discipline studies moral principles?",
+      "answer": "Ethics",
+      "source_ids": [
+        "Ethics"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 14,
+      "question": "What mathematical field deals with change and motion?",
+      "answer": "Calculus",
+      "source_ids": [
+        "Calculus"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 15,
+      "question": "What economic condition involves rising prices?",
+      "answer": "Inflation",
+      "source_ids": [
+        "Inflation"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 16,
+      "question": "Which psychology branch studies mental disorders?",
+      "answer": "Abnormal psychology",
+      "source_ids": [
+        "Abnormal_psychology"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 17,
+      "question": "What energy comes from the Sun?",
+      "answer": "Solar power",
+      "source_ids": [
+        "Solar_power"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 18,
+      "question": "What phenomenon traps heat in Earth’s atmosphere?",
+      "answer": "Greenhouse effect",
+      "source_ids": [
+        "Greenhouse_effect"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 19,
+      "question": "What is the largest rainforest listed?",
+      "answer": "Amazon rainforest",
+      "source_ids": [
+        "Amazon_rainforest"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 20,
+      "question": "Which mountain range includes Mount Everest?",
+      "answer": "Himalayas",
+      "source_ids": [
+        "Himalayas"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 21,
+      "question": "What natural disaster measures ground shaking magnitude?",
+      "answer": "Richter magnitude scale",
+      "source_ids": [
+        "Richter_magnitude_scale"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 22,
+      "question": "What organization leads US space missions?",
+      "answer": "NASA",
+      "source_ids": [
+        "NASA"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 23,
+      "question": "Which planet is known for its rings?",
+      "answer": "Saturn",
+      "source_ids": [
+        "Saturn"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 24,
+      "question": "What cosmic event marks the origin of the universe?",
+      "answer": "Big Bang",
+      "source_ids": [
+        "Big_Bang"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 25,
+      "question": "What physics theory describes gravity as spacetime curvature?",
+      "answer": "Relativity",
+      "source_ids": [
+        "Relativity"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 26,
+      "question": "What technology creates objects layer by layer?",
+      "answer": "3D printing",
+      "source_ids": [
+        "3D_printing"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 27,
+      "question": "What biological process uses stem cells for repair?",
+      "answer": "Stem cell differentiation",
+      "source_ids": [
+        "Stem_cell"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 28,
+      "question": "What medical preparation stimulates immunity?",
+      "answer": "Vaccine",
+      "source_ids": [
+        "Vaccine"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 29,
+      "question": "What microorganism lacks a cellular structure?",
+      "answer": "Virus",
+      "source_ids": [
+        "Virus"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 30,
+      "question": "What social science studies human societies?",
+      "answer": "Sociology",
+      "source_ids": [
+        "Sociology"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 31,
+      "question": "What discipline studies governance and power?",
+      "answer": "Political science",
+      "source_ids": [
+        "Political_science"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 32,
+      "question": "What field focuses on teaching methods?",
+      "answer": "Pedagogy",
+      "source_ids": [
+        "Pedagogy"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 33,
+      "question": "Who developed the theory of evolution by natural selection?",
+      "answer": "Charles Darwin",
+      "source_ids": [
+        "Charles_Darwin"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 34,
+      "question": "Which scientist developed the theory of relativity?",
+      "answer": "Albert Einstein",
+      "source_ids": [
+        "Albert_Einstein"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 35,
+      "question": "What empire was centered on Constantinople?",
+      "answer": "Byzantine Empire",
+      "source_ids": [
+        "Byzantine_Empire"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 36,
+      "question": "What river flows through Egypt?",
+      "answer": "Nile",
+      "source_ids": [
+        "Nile"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 37,
+      "question": "What ocean-related science studies seas and oceans?",
+      "answer": "Oceanography",
+      "source_ids": [
+        "Oceanography"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 38,
+      "question": "What galaxy contains Earth?",
+      "answer": "Milky Way",
+      "source_ids": [
+        "Milky_Way"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 39,
+      "question": "What energy comes from moving air?",
+      "answer": "Wind power",
+      "source_ids": [
+        "Wind_power"
+      ],
+      "category": "Factual"
+    },
+    {
+      "id": 40,
+      "question": "What branch of physics studies heat and energy transfer?",
+      "answer": "Thermodynamics",
+      "source_ids": [
+        "Thermodynamics"
+      ],
+      "category": "Factual"
+    }
+  ]
+}

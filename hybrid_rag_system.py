@@ -21,7 +21,7 @@ import uuid
 def load_urls():
 
     # Load fixed URLs from 200_fixed_urls.json file
-    with open(r'D:\Bits-MTech\Assignments\hybrid-rag-system\hybrid-rag-retrieval\data\200_fixed_urls.json', "r") as f:
+    with open(r'\path\to\hybrid-rag-system\data\200_fixed_urls.json', "r") as f:
         fixed_urls = json.load(f)["fixed_wiki_urls"][:50]
     
     # Randomly sample 300 URLs (replace with real Wikipedia scraping). For demo, we use fixed URLs only.
