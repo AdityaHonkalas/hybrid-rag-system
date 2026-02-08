@@ -233,7 +233,33 @@ def _run_evaluation_job(job_id: str, dataset_path: str, top_k: int, api_url: str
                         'score': round(score, 4)
                     })
 
-                return {'answer': answer, 'retrieved_chunks': retrieved_chunks, 'response_time_seconds': elapsed_q}
+                dense_retrieved_chunks = []
+                for chunk, score in dense_results:
+                    dense_retrieved_chunks.append({
+                        'id': chunk.get('id'),
+                        'title': chunk.get('title'),
+                        'url': chunk.get('url'),
+                        'text': chunk.get('text'),
+                        'score': round(score, 4)
+                    })
+
+                sparse_retrieved_chunks = []
+                for chunk, score in sparse_results:
+                    sparse_retrieved_chunks.append({
+                        'id': chunk.get('id'),
+                        'title': chunk.get('title'),
+                        'url': chunk.get('url'),
+                        'text': chunk.get('text'),
+                        'score': round(score, 4)
+                    })
+
+                return {
+                    'answer': answer,
+                    'retrieved_chunks': retrieved_chunks,
+                    'dense_retrieved_chunks': dense_retrieved_chunks,
+                    'sparse_retrieved_chunks': sparse_retrieved_chunks,
+                    'response_time_seconds': elapsed_q
+                }
             except Exception as e:
                 return {'answer': '', 'retrieved_chunks': [], 'response_time_seconds': 0}
 

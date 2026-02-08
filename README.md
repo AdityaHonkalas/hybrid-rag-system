@@ -12,60 +12,85 @@ This is a Flask-based web application for a Hybrid Retrieval-Augmented Generatio
 - **REST API**: JSON endpoints for programmatic access
 - **Metadata Tracking**: Each chunk stores URL, title, and unique ID
 
+## Quickstart
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+python flask_app.py
+```
+
 ## Installation
 
-1. **Set up a virtual environment** (if not already done):
+1. Create and activate a virtual environment:
 ```bash
-python -m venv venv
-# On Windows:
-venv\Scripts\activate
-# On macOS/Linux:
-source venv/bin/activate
+python -m venv .venv
+# Windows
+.venv\Scripts\activate
+# macOS/Linux
+source .venv/bin/activate
 ```
 
-2. **Install dependencies**:
+2. Install dependencies:
 ```bash
-pip install flask requests beautifulsoup4 numpy faiss-cpu sentence-transformers transformers rank-bm25
+pip install -r requirements.txt
 ```
 
-If you have a GPU and want to use FAISS-GPU:
+3. Optional GPU FAISS (only if you have CUDA installed):
 ```bash
+pip uninstall -y faiss-cpu
 pip install faiss-gpu
 ```
+
+## Dependencies
+
+Key packages from `requirements.txt`:
+- `flask`
+- `requests`
+- `beautifulsoup4`
+- `numpy`, `scipy`, `scikit-learn`
+- `faiss-cpu` (or `faiss-gpu`)
+- `sentence-transformers`
+- `rank-bm25`
+- `transformers`
+- `torch`
+- `pandas`, `matplotlib`, `seaborn`, `reportlab`, `tqdm`
 
 ## Project Structure
 
 ```
-hybrid-rag-retrieval/
-├── flask_app.py                      # Main Flask application
-├── hybrid_rag_system.py              # Original Streamlit version (RAG logic)
-├── 200_fixed_urls.json               # Wikipedia URLs dataset
-├── requirements.txt                  # Python dependencies
-├── templates/
-│   └── index.html                   # Web UI template
-└── README.md                         # This file
+hybrid-rag-system/
+??? flask_app.py                      # Main Flask application
+??? hybrid_rag_system.py              # Core RAG logic (also used by evaluation)
+??? evaluate_rag.py                   # Evaluation script + report generation
+??? data/
+?   ??? 200_fixed_urls.json           # Fixed Wikipedia URL list (200 URLs)
+?   ??? wikipedia_qa_100.json          # Sample QA dataset (if generated)
+??? requirements.txt                  # Python dependencies
+??? templates/
+?   ??? index.html                    # Web UI template
+??? README.md                         # This file
 ```
 
 ## Usage
 
-### Option 1: Web UI (Recommended)
+### Run the System (Web UI)
 
-1. **Start the Flask server**:
+1. Start the Flask server:
 ```bash
 python flask_app.py
 ```
 
-2. **Open in browser**:
-   - Navigate to `http://127.0.0.1:5000`
-   - Click "Initialize System" to load URLs and build indices (this may take 5-10 minutes on first run)
-   - Once ready, enter your question and click "Search"
+2. Open `http://127.0.0.1:5000`
+3. Click "Initialize System" to load URLs and build indices (first run can take 5-15 minutes).
+4. Enter a question and click "Search".
 
-### Option 2: REST API
+### Run the System (REST API)
 
-#### 1. Initialize the System
+1. Initialize the system:
 ```bash
-curl -X POST http://127.0.0.1:5000/api/initialize \
-  -H "Content-Type: application/json"
+curl -X POST http://127.0.0.1:5000/api/initialize   -H "Content-Type: application/json"
 ```
 
 Response:
@@ -76,7 +101,7 @@ Response:
 }
 ```
 
-#### 2. Check Health
+2. Check health:
 ```bash
 curl http://127.0.0.1:5000/health
 ```
@@ -90,11 +115,9 @@ Response:
 }
 ```
 
-#### 3. Query the System
+3. Query the system:
 ```bash
-curl -X POST http://127.0.0.1:5000/api/query \
-  -H "Content-Type: application/json" \
-  -d '{"query": "What is machine learning?", "top_k": 10}'
+curl -X POST http://127.0.0.1:5000/api/query   -H "Content-Type: application/json"   -d '{"query": "What is machine learning?", "top_k": 10}'
 ```
 
 Response:
@@ -115,6 +138,49 @@ Response:
   "response_time_seconds": 2.45
 }
 ```
+
+## Evaluation
+
+The evaluation script uses the same RAG pipeline and computes retrieval quality metrics, plus generates CSV/JSON/HTML/PDF reports.
+
+1. Start the Flask app (required for API-based evaluation):
+```bash
+python flask_app.py
+```
+
+2. Run evaluation:
+```bash
+python evaluate_rag.py --dataset data/wikipedia_qa_100.json --out evaluations/last
+```
+
+3. Outputs (saved to the `--out` directory):
+- `evaluation_results.json`
+- `evaluation_results.csv`
+- `evaluation_report.html`
+- `evaluation_report.pdf`
+- `metric_comparison.png`, `dense_mrr_dist.png`, `latency_dist.png`, `retrieval_heatmap.png`
+
+Notes:
+- First evaluation run will be slower due to model downloads and corpus caching.
+- Typical runtime depends on CPU/GPU and dataset size; plan for several minutes on CPU for 100 QA pairs.
+
+## Data Source (Fixed 200 Wikipedia URLs)
+
+The system uses a fixed list of 200 Wikipedia URLs stored in `data/200_fixed_urls.json`. The RAG corpus is built from this list and remains deterministic unless the list is changed.
+
+Snippet:
+```json
+{
+  "fixed_wiki_urls": [
+    "https://en.wikipedia.org/wiki/Physics",
+    "https://en.wikipedia.org/wiki/Chemistry",
+    "https://en.wikipedia.org/wiki/Biology",
+    "https://en.wikipedia.org/wiki/Astronomy",
+    "https://en.wikipedia.org/wiki/Geology"
+  ]
+}
+```
+
 ## Wikipedia Q&A Pair Generator
 
 ### Features

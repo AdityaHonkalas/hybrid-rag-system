@@ -133,16 +133,14 @@ def evaluate_dataset(
     #     except Exception:
     #         pass
 
-    model = SentenceTransformer(model_name)
-
     total_questions = len(dataset)
 
     # Accumulators
     mrr_total = 0.0
     precision_total = 0.0
     hit_total = 0
-    semantic_similarity_total = 0.0
-    token_overlap_total = 0.0
+    dense_mrr_total = 0.0
+    sparse_mrr_total = 0.0
     source_coverage_total = 0.0
     latency_total = 0.0
 
@@ -191,13 +189,25 @@ def evaluate_dataset(
         # Hit@K
         hit_total += 1 if relevant_count > 0 else 0
 
-        # Semantic similarity
-        sem_sim = compute_semantic_similarity(generated_answer, true_answer, model)
-        semantic_similarity_total += sem_sim
+        # Dense/Sparse MRR (if available in response)
+        dense_retrieved_docs = result.get('dense_retrieved_chunks', []) or []
+        sparse_retrieved_docs = result.get('sparse_retrieved_chunks', []) or []
 
-        # Custom metrics
-        to_ratio = token_overlap_ratio(generated_answer, true_answer)
-        token_overlap_total += to_ratio
+        dense_rank = None
+        for idx, doc in enumerate(dense_retrieved_docs, start=1):
+            if source_match(doc, true_sources):
+                dense_rank = idx
+                break
+        dense_mrr = (1 / dense_rank) if dense_rank else 0.0
+        dense_mrr_total += dense_mrr
+
+        sparse_rank = None
+        for idx, doc in enumerate(sparse_retrieved_docs, start=1):
+            if source_match(doc, true_sources):
+                sparse_rank = idx
+                break
+        sparse_mrr = (1 / sparse_rank) if sparse_rank else 0.0
+        sparse_mrr_total += sparse_mrr
 
         scs = source_coverage_score(retrieved_docs, true_sources, top_k)
         source_coverage_total += scs
@@ -212,8 +222,8 @@ def evaluate_dataset(
             'mrr': mrr_val,
             'hit': 1 if relevant_count > 0 else 0,
             'precision_at_k': relevant_count / top_k,
-            'semantic_similarity': sem_sim,
-            'token_overlap_ratio': to_ratio,
+            'dense_mrr': dense_mrr,
+            'sparse_mrr': sparse_mrr,
             'source_coverage_score': scs,
             'latency': latency
         })
@@ -223,8 +233,8 @@ def evaluate_dataset(
         'MRR': mrr_total / total_questions if total_questions else 0.0,
         f'Precision@{top_k}': precision_total / total_questions if total_questions else 0.0,
         f'Hit@{top_k}': hit_total / total_questions if total_questions else 0.0,
-        'Avg_Semantic_Similarity': semantic_similarity_total / total_questions if total_questions else 0.0,
-        'Avg_Token_Overlap_Ratio': token_overlap_total / total_questions if total_questions else 0.0,
+        'Avg_Dense_MRR': dense_mrr_total / total_questions if total_questions else 0.0,
+        'Avg_Sparse_MRR': sparse_mrr_total / total_questions if total_questions else 0.0,
         'Avg_Source_Coverage_Score': source_coverage_total / total_questions if total_questions else 0.0,
         'Avg_Latency': latency_total / total_questions if total_questions else 0.0,
         'total_questions': total_questions
@@ -255,7 +265,8 @@ def generate_reports(summary: Dict, detailed: List[Dict], out_dir: str, top_k: i
         'MRR': summary.get('MRR', 0),
         f'Precision@{top_k}': summary.get(f'Precision@{top_k}', 0),
         f'Hit@{top_k}': summary.get(f'Hit@{top_k}', 0),
-        'Avg_Semantic_Similarity': summary.get('Avg_Semantic_Similarity', 0)
+        'Avg_Dense_MRR': summary.get('Avg_Dense_MRR', 0),
+        'Avg_Sparse_MRR': summary.get('Avg_Sparse_MRR', 0)
     }
     plt.figure(figsize=(8, 5))
     sns.barplot(x=list(metrics_for_plot.keys()), y=list(metrics_for_plot.values()))
@@ -269,12 +280,12 @@ def generate_reports(summary: Dict, detailed: List[Dict], out_dir: str, top_k: i
 
     # Distribution plots
     plt.figure(figsize=(8, 5))
-    sns.histplot(df['semantic_similarity'].dropna(), kde=True, bins=25)
-    plt.title('Semantic Similarity Distribution')
-    sim_path = Path(out_dir) / 'semantic_similarity_dist.png'
+    sns.histplot(df['dense_mrr'].dropna(), kde=True, bins=25)
+    plt.title('Dense MRR Distribution')
+    sim_path = Path(out_dir) / 'dense_mrr_dist.png'
     plt.tight_layout()
     plt.savefig(sim_path)
-    images['semantic_similarity_dist'] = str(sim_path)
+    images['dense_mrr_dist'] = str(sim_path)
     plt.close()
 
     plt.figure(figsize=(8, 5))
@@ -287,7 +298,7 @@ def generate_reports(summary: Dict, detailed: List[Dict], out_dir: str, top_k: i
     plt.close()
 
     # Retrieval heatmap: correlation between metrics
-    corr = df[['precision_at_k', 'semantic_similarity', 'token_overlap_ratio', 'source_coverage_score', 'latency']].corr()
+    corr = df[['precision_at_k', 'dense_mrr', 'sparse_mrr', 'source_coverage_score', 'latency']].corr()
     plt.figure(figsize=(7, 6))
     sns.heatmap(corr, annot=True, fmt='.2f', cmap='coolwarm')
     plt.title('Metric Correlation Heatmap')
@@ -298,14 +309,14 @@ def generate_reports(summary: Dict, detailed: List[Dict], out_dir: str, top_k: i
     plt.close()
 
     # Error analysis: top failures (zero hit or low semantic similarity)
-    failures = df[(df['hit'] == 0) | (df['semantic_similarity'] < 0.3)].sort_values(by='semantic_similarity')
+    failures = df[(df['hit'] == 0) | ((df['dense_mrr'] == 0) & (df['sparse_mrr'] == 0))].sort_values(by='dense_mrr')
     failures_path = Path(out_dir) / 'failures.csv'
     failures.to_csv(failures_path, index=False, encoding='utf-8')
 
     # Failure pattern analysis (simple heuristics)
     pattern_counts = {
         'zero_hit': int(((df['hit'] == 0)).sum()),
-        'low_semantic_similarity': int((df['semantic_similarity'] < 0.3).sum()),
+        'zero_dense_and_sparse_mrr': int(((df['dense_mrr'] == 0) & (df['sparse_mrr'] == 0)).sum()),
         'low_source_coverage': int((df['source_coverage_score'] < 0.5).sum())
     }
 
@@ -332,7 +343,7 @@ def generate_reports(summary: Dict, detailed: List[Dict], out_dir: str, top_k: i
             fh.write(f'<li><strong>{k}:</strong> {v}</li>')
         fh.write('</ul>')
 
-        fh.write('<table border="1" cellpadding="5"><tr><th>Question ID</th><th>Question</th><th>Expected</th><th>Generated</th><th>Semantic Similarity</th><th>Token Overlap</th><th>Source Coverage</th><th>Latency</th></tr>')
+        fh.write('<table border="1" cellpadding="5"><tr><th>Question ID</th><th>Question</th><th>Expected</th><th>Generated</th><th>MRR</th><th>Dense MRR</th><th>Sparse MRR</th><th>Source Coverage</th><th>Latency</th></tr>')
         for _, row in failures.head(20).iterrows():
             fh.write('<tr>')
             fh.write(f'<td>{row.get("question_id")}</td>')
@@ -340,8 +351,8 @@ def generate_reports(summary: Dict, detailed: List[Dict], out_dir: str, top_k: i
             fh.write(f'<td>{row.get("expected_answer")}</td>')
             fh.write(f'<td>{row.get("generated_answer")}</td>')
             fh.write(f'<td>{row.get("mrr"):.3f}</td>')
-            fh.write(f'<td>{row.get("semantic_similarity"):.3f}</td>')
-            fh.write(f'<td>{row.get("token_overlap_ratio"):.3f}</td>')
+            fh.write(f'<td>{row.get("dense_mrr"):.3f}</td>')
+            fh.write(f'<td>{row.get("sparse_mrr"):.3f}</td>')
             fh.write(f'<td>{row.get("source_coverage_score"):.3f}</td>')
             fh.write(f'<td>{row.get("latency"):.2f}</td>')
             fh.write('</tr>')
@@ -395,7 +406,7 @@ def generate_reports(summary: Dict, detailed: List[Dict], out_dir: str, top_k: i
             y = height - 50
 
     # Add metric comparison image
-    for img_key in ['metric_comparison', 'semantic_similarity_dist', 'latency_dist', 'retrieval_heatmap']:
+    for img_key in ['metric_comparison', 'dense_mrr_dist', 'latency_dist', 'retrieval_heatmap']:
         img_file = images.get(img_key)
         if img_file and Path(img_file).exists():
             try:
