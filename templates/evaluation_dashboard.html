@@ -408,13 +408,6 @@
                         <label for="top-k">Top-K Results</label>
                         <input type="number" id="top-k" value="5" min="1" max="20">
                     </div>
-                    <div class="form-item">
-                        <label for="run-mode">Execution Mode</label>
-                        <select id="run-mode">
-                            <option value="async">Asynchronous (Background)</option>
-                            <option value="sync">Synchronous (Wait)</option>
-                        </select>
-                    </div>
                 </div>
                 <div class="button-group">
                     <button class="btn btn-primary" onclick="startEvaluation()" id="start-eval-btn">
@@ -452,8 +445,6 @@
         async function startEvaluation() {
             const datasetPath = document.getElementById('dataset-path').value.trim();
             const topK = parseInt(document.getElementById('top-k').value);
-            const runMode = document.getElementById('run-mode').value;
-            const runSync = runMode === 'sync';
 
             if (!datasetPath) {
                 showAlert('Please enter a dataset path', 'error');
@@ -462,16 +453,44 @@
 
             const btn = document.getElementById('start-eval-btn');
             btn.disabled = true;
-            btn.textContent = '⏳ Starting...';
 
             try {
+                // Step 1: Check system status
+                btn.textContent = '🔍 Checking corpus status...';
+                const statusResponse = await fetch('/api/system/status');
+                const statusData = await statusResponse.json();
+
+                // Step 2: Initialize corpus if not ready
+                if (statusData.status !== 'ready') {
+                    btn.textContent = '⏳ Initializing corpus (this may take 2-4 minutes on first run)...';
+                    showAlert('Initializing corpus... This may take a few minutes on first run.', 'info');
+                    
+                    const initResponse = await fetch('/api/initialize', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ force_rebuild: false })
+                    });
+
+                    const initData = await initResponse.json();
+                    if (initData.status !== 'success') {
+                        showAlert('✗ Failed to initialize corpus: ' + (initData.message || 'Unknown error'), 'error');
+                        btn.disabled = false;
+                        btn.textContent = '▶ Start Evaluation';
+                        return;
+                    }
+                    showAlert('✓ Corpus initialized successfully!', 'success');
+                } else {
+                    showAlert('✓ Corpus already loaded', 'success');
+                }
+
+                // Step 3: Start evaluation
+                btn.textContent = '⏳ Starting evaluation...';
                 const response = await fetch('/api/evaluate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         dataset_path: datasetPath,
-                        top_k: topK,
-                        run_sync: runSync
+                        top_k: topK
                     })
                 });
 
@@ -484,13 +503,8 @@
                     };
                     showAlert(`✓ Evaluation started! Job ID: ${data.job_id.substring(0, 8)}...`, 'success');
                     
-                    if (runSync) {
-                        // Poll for sync jobs
-                        await pollJobStatus(data.job_id, true);
-                    } else {
-                        // Auto-refresh for async
-                        startJobPolling();
-                    }
+                    // Poll for synchronous job completion
+                    await pollJobStatus(data.job_id);
                 } else {
                     showAlert('Failed to start evaluation: ' + (data.message || 'Unknown error'), 'error');
                 }
@@ -502,8 +516,8 @@
             }
         }
 
-        async function pollJobStatus(jobId, isSync = false) {
-            const maxAttempts = isSync ? 600 : 60;
+        async function pollJobStatus(jobId) {
+            const maxAttempts = 600;
             let attempts = 0;
 
             const poll = async () => {
@@ -605,7 +619,7 @@
                         <div class="action-buttons">
                             <button class="action-btn" onclick="viewReport('${job.job_id}')">📄 View Report</button>
                             <a href="/api/evaluate/download/${job.job_id}/evaluation_report.pdf" 
-                               class="action-btn" download>📥 PDF</a>
+                               class="action-btn" target="_blank" rel="noopener">📥 PDF</a>
                         </div>
                         <div class="report-links">
                             <strong>Download:</strong>
@@ -665,20 +679,12 @@
         }
 
         async function viewReport(jobId) {
-            try {
-                const response = await fetch(`/api/evaluate/report/${jobId}`);
-                if (!response.ok) throw new Error('Report not ready');
-                const data = await response.json();
-                
-                if (data.paths && data.paths.html) {
-                    // Open HTML report in new window
-                    window.open(`/api/evaluate/download/${jobId}/evaluation_report.html`, '_blank');
-                } else {
-                    showAlert('Report not yet available', 'info');
+                // Open the HTML report directly in a new tab. The server will return 404 if not available.
+                try {
+                    window.open(`/api/evaluate/download/${jobId}/evaluation_report.html`, '_blank', 'noopener');
+                } catch (error) {
+                    showAlert('Error opening report: ' + error.message, 'error');
                 }
-            } catch (error) {
-                showAlert('Error loading report: ' + error.message, 'error');
-            }
         }
 
         // Initialize on load: fetch server-side job list and start polling

@@ -13,6 +13,8 @@ import urllib.parse
 from wiki_urls_scraping import generate_random_wiki_urls_scraping
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import uuid
+import pickle
+from pathlib import Path
 
 
 # ---------------------------------------------------------------
@@ -21,8 +23,8 @@ import uuid
 def load_urls():
 
     # Load fixed URLs from 200_fixed_urls.json file
-    with open(r'\path\to\hybrid-rag-system\data\200_fixed_urls.json', "r") as f:
-        fixed_urls = json.load(f)["fixed_wiki_urls"][:50]
+    with open(r'D:\Bits-MTech\Assignments\hybrid-rag-system\data\200_fixed_urls.json', "r") as f:
+        fixed_urls = json.load(f)["fixed_wiki_urls"]
     
     # Randomly sample 300 URLs (replace with real Wikipedia scraping). For demo, we use fixed URLs only.
     #random_urls = generate_random_wiki_urls_scraping(count=300)
@@ -159,47 +161,163 @@ def generate_answer(query, context_chunks, model_name="google/flan-t5-base"):
     outputs = model.generate(**inputs, max_length=200)
     return tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-# # -----------------------------
-# # Step 7: Streamlit UI
-# # -----------------------------
-# def run_ui(chunks, dense_index, dense_model, bm25):
-#     st.title("Hybrid RAG System (Dense + BM25 + RRF)")
-#     query = st.text_input("Enter your question:")
-#     if query:
-#         start = time.time()
-#         dense_results = dense_retrieve(query, dense_index, dense_model, chunks)
-#         sparse_results = sparse_retrieve(query, bm25, chunks)
-#         rrf_results = reciprocal_rank_fusion(dense_results, sparse_results)
-#         answer = generate_answer(query, rrf_results)
-#         end = time.time()
 
-#         st.subheader("Generated Answer")
-#         st.write(answer)
-#         st.subheader("Top Retrieved Chunks")
-#         for chunk, score in rrf_results:
-#             title = chunk.get('title', '')
-#             url = chunk.get('url', '')
-#             text_snip = chunk.get('text', '')[:200]
-#             st.write(f"RRF Score: {score:.4f} | Title: {title} | URL: {url}")
-#             st.write(text_snip + "...")
-#         st.write(f"Response Time: {end-start:.2f} seconds")
 
-# -----------------------------
-# Main Execution
-# -----------------------------
-# if __name__ == "__main__":
-#     urls = load_urls()
-#     # Build corpus with real text and metadata
-#     all_chunks = []
-#     for url in urls:
-#         title, text = fetch_text_from_url(url)
-#         if not text:
-#             continue
-#         parts = chunk_text_with_metadata(text, url, title, chunk_size=300, overlap=50)
-#         all_chunks.extend(parts)
 
-#     # Build indices using chunk dicts
-#     dense_index, embeddings, dense_model = build_dense_index(all_chunks)
-#     bm25, tokenized = build_sparse_index(all_chunks)
+# ---------------------------------------------------------------
+# Corpus Persistence Functions
+# ---------------------------------------------------------------
+def save_corpus_and_vectors(corpus_dir: str, chunks: list, embeddings: np.ndarray, 
+                           dense_index: faiss.IndexFlatIP, tokenized: list, 
+                           model_name: str = "all-MiniLM-L6-v2"):
+    """Save preprocessed corpus and vector database to disk.
+    
+    Creates the following files in corpus_dir:
+    - corpus_chunks.json: Chunk metadata (id, url, title, text)
+    - embeddings.npy: Dense embeddings (NumPy array)
+    - dense_index.faiss: FAISS dense index file
+    - tokenized_data.pkl: Tokenized texts for BM25
+    - corpus_metadata.json: Metadata (model name, chunk count, etc.)
+    """
+    Path(corpus_dir).mkdir(parents=True, exist_ok=True)
+    
+    # Save chunks metadata
+    chunks_path = Path(corpus_dir) / 'corpus_chunks.json'
+    with open(chunks_path, 'w', encoding='utf-8') as fh:
+        json.dump(chunks, fh, ensure_ascii=False, indent=2)
+    print(f"[INFO] Saved {len(chunks)} chunks to {chunks_path}")
+    
+    # Save embeddings
+    embeddings_path = Path(corpus_dir) / 'embeddings.npy'
+    np.save(embeddings_path, embeddings)
+    print(f"[INFO] Saved embeddings ({embeddings.shape}) to {embeddings_path}")
+    
+    # Save FAISS index
+    index_path = Path(corpus_dir) / 'dense_index.faiss'
+    try:
+        faiss.write_index(dense_index, str(index_path))
+        print(f"[INFO] Saved FAISS index to {index_path}")
+    except Exception as e:
+        print(f"[WARNING] Failed to save FAISS index: {e}. Index can be rebuilt from embeddings.")
+    
+    # Save tokenized data for BM25 recreation
+    tokenized_path = Path(corpus_dir) / 'tokenized_data.pkl'
+    with open(tokenized_path, 'wb') as fh:
+        pickle.dump(tokenized, fh)
+    print(f"[INFO] Saved tokenized data ({len(tokenized)} tokens) to {tokenized_path}")
+    
+    # Save metadata
+    metadata = {
+        'model_name': model_name,
+        'chunk_count': len(chunks),
+        'embedding_dim': embeddings.shape[1],
+        'timestamp': time.time()
+    }
+    metadata_path = Path(corpus_dir) / 'corpus_metadata.json'
+    with open(metadata_path, 'w', encoding='utf-8') as fh:
+        json.dump(metadata, fh, indent=2)
+    print(f"[INFO] Saved corpus metadata to {metadata_path}")
 
-#     run_ui(all_chunks, dense_index, dense_model, bm25)
+
+def load_corpus_and_vectors(corpus_dir: str, model_name: str = "all-MiniLM-L6-v2"):
+    """Load preprocessed corpus and vector database from disk.
+    
+    Returns: (chunks, embeddings, dense_index, tokenized) or None if files missing
+    """
+    corpus_path = Path(corpus_dir)
+    chunks_path = corpus_path / 'corpus_chunks.json'
+    embeddings_path = corpus_path / 'embeddings.npy'
+    index_path = corpus_path / 'dense_index.faiss'
+    tokenized_path = corpus_path / 'tokenized_data.pkl'
+    
+    # Check if core files exist
+    if not chunks_path.exists() or not embeddings_path.exists():
+        print(f"[WARNING] Corpus cache not found at {corpus_dir}")
+        return None
+    
+    print(f"[INFO] Loading corpus from {corpus_dir}...")
+    
+    # Load chunks
+    with open(chunks_path, 'r', encoding='utf-8') as fh:
+        chunks = json.load(fh)
+    print(f"[INFO] Loaded {len(chunks)} chunks")
+    
+    # Load embeddings
+    embeddings = np.load(str(embeddings_path))
+    print(f"[INFO] Loaded embeddings with shape {embeddings.shape}")
+    
+    # Load or rebuild FAISS index
+    if index_path.exists():
+        try:
+            dense_index = faiss.read_index(str(index_path))
+            print(f"[INFO] Loaded FAISS index")
+        except Exception as e:
+            print(f"[WARNING] Failed to load FAISS index: {e}. Rebuilding from embeddings...")
+            dim = embeddings.shape[1]
+            dense_index = faiss.IndexFlatIP(dim)
+            dense_index.add(embeddings)
+    else:
+        print(f"[INFO] FAISS index not found. Rebuilding from embeddings...")
+        dim = embeddings.shape[1]
+        dense_index = faiss.IndexFlatIP(dim)
+        dense_index.add(embeddings)
+    
+    # Load tokenized data or recreate
+    if tokenized_path.exists():
+        with open(tokenized_path, 'rb') as fh:
+            tokenized = pickle.load(fh)
+        print(f"[INFO] Loaded {len(tokenized)} tokenized texts")
+    else:
+        print(f"[INFO] Tokenized data not found. Recreating from chunks...")
+        tokenized = [c['text'].split() for c in chunks]
+    
+    return chunks, embeddings, dense_index, tokenized
+
+
+def load_or_build_corpus(corpus_dir: str, urls: list = None, chunk_size: int = 300, 
+                        overlap: int = 50, force_rebuild: bool = False,
+                        model_name: str = "all-MiniLM-L6-v2"):
+    """Load corpus from cache or build from URLs if missing.
+    
+    First checks for saved corpus. If found and force_rebuild=False, loads it.
+    Otherwise builds from URLs, saves to cache, and returns.
+    
+    Returns: (chunks, embeddings, dense_index, model, bm25, tokenized)
+    """
+    # Try to load from cache first
+    if not force_rebuild:
+        loaded = load_corpus_and_vectors(corpus_dir, model_name)
+        if loaded:
+            chunks, embeddings, dense_index, tokenized = loaded
+            model = SentenceTransformer(model_name)
+            bm25, _ = build_sparse_index(chunks)
+            print(f"[INFO] Using cached corpus from {corpus_dir}")
+            return chunks, embeddings, dense_index, model, bm25, tokenized
+    
+    # Build corpus from URLs
+    if urls is None or len(urls) == 0:
+        raise ValueError("No URLs provided and corpus cache not found. Please provide URLs to build corpus.")
+    
+    print(f"[INFO] Building corpus from {len(urls)} URLs...")
+    all_chunks = []
+    successful_urls = 0
+    
+    for idx, url in enumerate(urls):
+        if idx % 10 == 0:
+            print(f"[INFO] Processing URL {idx+1}/{len(urls)}...")
+        title, text = fetch_text_from_url(url)
+        if text:
+            parts = chunk_text_with_metadata(text, url, title, chunk_size=chunk_size, overlap=overlap)
+            all_chunks.extend(parts)
+            successful_urls += 1
+    
+    print(f"[INFO] Built corpus with {len(all_chunks)} chunks from {successful_urls} URLs")
+    
+    # Build indices
+    dense_index, embeddings, model = build_dense_index(all_chunks, model_name=model_name)
+    bm25, tokenized = build_sparse_index(all_chunks)
+    
+    # Save to cache
+    save_corpus_and_vectors(corpus_dir, all_chunks, embeddings, dense_index, tokenized, model_name)
+    
+    return all_chunks, embeddings, dense_index, model, bm25, tokenized

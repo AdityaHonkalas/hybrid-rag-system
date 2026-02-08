@@ -1,9 +1,10 @@
 import json
 import time
-from flask import Flask, render_template, request, jsonify
+import re
+from flask import Flask, render_template, request, jsonify, Response
 import requests
 import uuid
-from threading import Lock, Thread
+from threading import Lock
 import os
 import evaluate_rag
 from hybrid_rag_system import *
@@ -20,11 +21,20 @@ chunks = []
 dense_index = None
 dense_model = None
 bm25 = None
+embeddings = None
+tokenized = None
 #tokenizer = None
 #gen_model = None
 data_lock = Lock()  # Thread-safe access to shared resources
 
+# Corpus cache configuration
+CORPUS_CACHE_DIR = os.path.join(os.path.dirname(__file__), r'data\corpus_cache')
+MODEL_NAME = 'all-MiniLM-L6-v2'
+CHUNK_SIZE = 300
+CHUNK_OVERLAP = 50
+
 print("[INFO] Flask app initialized. Indices not yet loaded.")
+print(f"[INFO] Corpus cache directory: {CORPUS_CACHE_DIR}")
 
 # Evaluation job tracking
 evaluation_jobs = {}
@@ -36,53 +46,77 @@ os.makedirs(EVAL_OUTPUT_DIR, exist_ok=True)
 # ---------------------------------------------------------------
 @app.route('/api/initialize', methods=['POST'])
 def initialize_system():
-    """Initialize/load the RAG system with URLs and build indices."""
-    global chunks, dense_index, dense_model, bm25, tokenizer, gen_model
+    """Initialize/load the RAG system. Loads from cache if available, otherwise builds from URLs."""
+    global chunks, dense_index, dense_model, bm25, embeddings, tokenized
+    
+    data = request.get_json() or {}
+    force_rebuild = bool(data.get('force_rebuild', False))
     
     with data_lock:
         try:
             print("[INFO] Starting system initialization...")
+            print(f"[INFO] Force rebuild: {force_rebuild}")
             
-            # Load models
-            # print("[INFO] Loading tokenizer and model...")
-            # tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-base")
-            # gen_model = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-base")
-            # print("[INFO] Models loaded.")
-            
-            # Load and chunk data
+            # Load URLs
             print("[INFO] Loading URLs...")
             urls = load_urls()
             print(f"[INFO] Loaded {len(urls)} URLs.")
             
-            all_chunks = []
-            successful_urls = 0
-            for idx, url in enumerate(urls):
-                if idx % 10 == 0:
-                    print(f"[INFO] Processing URL {idx+1}/{len(urls)}...")
-                title, text = fetch_text_from_url(url)
-                if text:
-                    parts = chunk_text_with_metadata(text, url, title, chunk_size=300, overlap=50)
-                    all_chunks.extend(parts)
-                    successful_urls += 1
+            # Load or build corpus (with caching)
+            print(f"[INFO] Checking corpus cache at {CORPUS_CACHE_DIR}...")
+            all_chunks, emb, dense_idx, model, bm25_idx, tokenized_texts = load_or_build_corpus(
+                corpus_dir=CORPUS_CACHE_DIR,
+                urls=urls,
+                chunk_size=CHUNK_SIZE,
+                overlap=CHUNK_OVERLAP,
+                force_rebuild=force_rebuild,
+                model_name=MODEL_NAME
+            )
             
-            print(f"[INFO] Processed {successful_urls} URLs successfully. Total chunks: {len(all_chunks)}")
+            print(f"[INFO] System initialized with {len(all_chunks)} chunks.")
             
-            if not all_chunks:
-                return jsonify({'status': 'error', 'message': 'No chunks created from URLs'}), 400
-            
+            # Update globals
             chunks = all_chunks
-            
-            # Build indices
-            dense_index, _, dense_model = build_dense_index(chunks)
-            bm25, _ = build_sparse_index(chunks)
+            dense_index = dense_idx
+            dense_model = model
+            bm25 = bm25_idx
+            tokenized = tokenized_texts
+            embeddings = emb
             
             return jsonify({
                 'status': 'success',
-                'message': f'System initialized with {len(chunks)} chunks from {successful_urls} URLs'
+                'message': f'System initialized with {len(chunks)} chunks',
+                'cache_dir': CORPUS_CACHE_DIR,
+                'force_rebuild': force_rebuild,
+                'embedding_shape': str(embeddings.shape) if embeddings is not None else 'None'
             })
         except Exception as e:
             print(f"[ERROR] Initialization failed: {e}")
             return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+@app.route('/api/rebuild-cache', methods=['POST'])
+def rebuild_cache():
+    """Force rebuild and save corpus cache."""
+    request_data = request.get_json() or {}
+    request_data['force_rebuild'] = True
+    request.json = request_data
+    return initialize_system()
+
+
+@app.route('/api/system/status', methods=['GET'])
+def system_status():
+    """Check if corpus is initialized and ready for queries."""
+    is_ready = bool(chunks and dense_index and dense_model and bm25)
+    return jsonify({
+        'status': 'ready' if is_ready else 'not_initialized',
+        'system_initialized': is_ready,
+        'chunks_loaded': len(chunks),
+        'has_embeddings': embeddings is not None,
+        'has_dense_index': dense_index is not None,
+        'has_bm25': bm25 is not None,
+        'has_model': dense_model is not None
+    })
 
 
 # ---------------------------------------------------------------
@@ -146,12 +180,64 @@ def query_rag():
 # ---------------------------------------------------------------
 def _run_evaluation_job(job_id: str, dataset_path: str, top_k: int, api_url: str, init_url: str):
     """Background job runner for evaluation."""
+    global chunks, dense_index, dense_model, bm25, embeddings, tokenized
+    
     try:
         evaluation_jobs[job_id]['status'] = 'running'
         evaluation_jobs[job_id]['started_at'] = time.time()
 
+        # Ensure corpus is loaded before evaluation
+        print(f"[EVAL-{job_id[:8]}] Checking corpus status...")
+        if not chunks or not dense_index or not dense_model or not bm25:
+            print(f"[EVAL-{job_id[:8]}] Corpus not initialized. Loading now...")
+            with data_lock:
+                urls = load_urls()
+                all_chunks, emb, dense_idx, model, bm25_idx, tokenized_texts = load_or_build_corpus(
+                    corpus_dir=CORPUS_CACHE_DIR,
+                    urls=urls,
+                    chunk_size=CHUNK_SIZE,
+                    overlap=CHUNK_OVERLAP,
+                    force_rebuild=False,
+                    model_name=MODEL_NAME
+                )
+                chunks = all_chunks
+                dense_index = dense_idx
+                dense_model = model
+                bm25 = bm25_idx
+                tokenized = tokenized_texts
+                embeddings = emb
+            print(f"[EVAL-{job_id[:8]}] Corpus ready with {len(chunks)} chunks")
+        else:
+            print(f"[EVAL-{job_id[:8]}] Corpus already initialized")
+
         data = evaluate_rag.load_dataset(dataset_path)
-        summary, detailed = evaluate_rag.evaluate_dataset(data, api_url=api_url, init_url=init_url, top_k=top_k, progress=False)
+        # Provide a local query function to avoid HTTP calls to the same Flask server
+        def local_query_fn(question_text: str):
+            start_q = time.time()
+            try:
+                with data_lock:
+                    dense_results = dense_retrieve(question_text, dense_index, dense_model, chunks, top_k=top_k)
+                    sparse_results = sparse_retrieve(question_text, bm25, chunks, top_k=top_k)
+                    rrf_results = reciprocal_rank_fusion(dense_results, sparse_results, top_n=top_k)
+                    answer = generate_answer(question_text, rrf_results)
+
+                elapsed_q = time.time() - start_q
+
+                retrieved_chunks = []
+                for chunk, score in rrf_results:
+                    retrieved_chunks.append({
+                        'id': chunk.get('id'),
+                        'title': chunk.get('title'),
+                        'url': chunk.get('url'),
+                        'text': chunk.get('text'),
+                        'score': round(score, 4)
+                    })
+
+                return {'answer': answer, 'retrieved_chunks': retrieved_chunks, 'response_time_seconds': elapsed_q}
+            except Exception as e:
+                return {'answer': '', 'retrieved_chunks': [], 'response_time_seconds': 0}
+
+        summary, detailed = evaluate_rag.evaluate_dataset(data, api_url=api_url, init_url=init_url, top_k=top_k, progress=False, query_fn=local_query_fn)
 
         out_dir = os.path.join(EVAL_OUTPUT_DIR, job_id)
         paths = evaluate_rag.generate_reports(summary, detailed, out_dir, top_k=top_k)
@@ -168,15 +254,14 @@ def _run_evaluation_job(job_id: str, dataset_path: str, top_k: int, api_url: str
 
 @app.route('/api/evaluate', methods=['POST'])
 def start_evaluation():
-    """Start an evaluation job. Accepts JSON: {dataset_path, top_k, api_url, init_url, run_sync}
-    Returns a job_id for status tracking.
+    """Start an evaluation job. Accepts JSON: {dataset_path, top_k, api_url, init_url}
+    Runs synchronously (blocking).
     """
     data = request.get_json() or {}
-    dataset_path = data.get('dataset_path', r'path\to\hybrid-rag-system\data\wikipedia_qa_100_updated.json')
+    dataset_path = data.get('dataset_path', r'D:\Bits-MTech\Assignments\hybrid-rag-system\data\wikipedia_qa_100.json')
     top_k = int(data.get('top_k', 5))
     api_url = data.get('api_url', 'http://127.0.0.1:5000/api/query')
     init_url = data.get('init_url', 'http://127.0.0.1:5000/api/initialize')
-    run_sync = bool(data.get('run_sync', False))
 
     job_id = str(uuid.uuid4())
     evaluation_jobs[job_id] = {
@@ -188,12 +273,8 @@ def start_evaluation():
         'created_at': time.time()
     }
 
-    if run_sync:
-        # Run inline (blocking)
-        _run_evaluation_job(job_id, dataset_path, top_k, api_url, init_url)
-    else:
-        t = Thread(target=_run_evaluation_job, args=(job_id, dataset_path, top_k, api_url, init_url), daemon=True)
-        t.start()
+    # Run evaluation job synchronously (blocking)
+    _run_evaluation_job(job_id, dataset_path, top_k, api_url, init_url)
 
     return jsonify({'status': 'started', 'job_id': job_id})
 
@@ -210,10 +291,44 @@ def evaluation_status(job_id):
 def evaluation_report(job_id):
     job = evaluation_jobs.get(job_id)
     if not job:
+        # Try to recover from filesystem if job not present in-memory
+        out_dir = os.path.join(EVAL_OUTPUT_DIR, job_id)
+        if os.path.isdir(out_dir):
+            # attempt to load JSON summary if present
+            json_path = os.path.join(out_dir, 'evaluation_results.json')
+            paths = {
+                'json': os.path.join(out_dir, 'evaluation_results.json'),
+                'csv': os.path.join(out_dir, 'evaluation_results.csv'),
+                'html': os.path.join(out_dir, 'evaluation_report.html'),
+                'pdf': os.path.join(out_dir, 'evaluation_report.pdf')
+            }
+            summary = None
+            if os.path.exists(json_path):
+                try:
+                    with open(json_path, 'r', encoding='utf-8') as fh:
+                        payload = json.load(fh)
+                    summary = payload.get('summary')
+                except Exception:
+                    summary = None
+
+            return jsonify({'status': 'success', 'paths': paths, 'summary': summary})
         return jsonify({'status': 'error', 'message': 'job_id not found'}), 404
+
     if job.get('status') != 'finished':
         return jsonify({'status': job.get('status'), 'message': 'report not ready'}), 400
-    return jsonify({'status': 'success', 'paths': job.get('paths'), 'summary': job.get('summary')})
+
+    # If finished, ensure paths are available; if not, attempt to resolve from disk
+    paths = job.get('paths') or {}
+    if not paths:
+        out_dir = os.path.join(EVAL_OUTPUT_DIR, job_id)
+        paths = {
+            'json': os.path.join(out_dir, 'evaluation_results.json'),
+            'csv': os.path.join(out_dir, 'evaluation_results.csv'),
+            'html': os.path.join(out_dir, 'evaluation_report.html'),
+            'pdf': os.path.join(out_dir, 'evaluation_report.pdf')
+        }
+
+    return jsonify({'status': 'success', 'paths': paths, 'summary': job.get('summary')})
 
 
 @app.route('/api/evaluate/jobs', methods=['GET'])
@@ -289,16 +404,91 @@ def evaluation_jobs_list():
     return jsonify({'status': 'success', 'jobs': list(jobs.values())})
 
 
+@app.route('/api/evaluate/img/<job_id>/<filename>', methods=['GET'])
+def evaluation_image(job_id, filename):
+    """Serve image files (PNG, JPG, etc.) from evaluation job directory."""
+    out_dir = os.path.join(EVAL_OUTPUT_DIR, job_id)
+    if not os.path.isdir(out_dir):
+        return jsonify({'status': 'error', 'message': 'job_id not found'}), 404
+
+    # Restrict to image files only
+    allowed_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.svg'}
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in allowed_extensions:
+        return jsonify({'status': 'error', 'message': 'file type not allowed'}), 400
+
+    safe_name = os.path.basename(filename)
+    file_path = os.path.join(out_dir, safe_name)
+
+    # Prevent path traversal
+    if not os.path.exists(file_path) or not os.path.commonpath([file_path, out_dir]) == out_dir:
+        return jsonify({'status': 'error', 'message': 'image not found'}), 404
+
+    from flask import send_file
+    mime_types = {
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif',
+        '.svg': 'image/svg+xml'
+    }
+    mimetype = mime_types.get(ext, 'image/png')
+    return send_file(file_path, mimetype=mimetype)
+
+
 @app.route('/api/evaluate/download/<job_id>/<path:filename>', methods=['GET'])
 def evaluation_download(job_id, filename):
-    job = evaluation_jobs.get(job_id)
-    if not job:
-        return jsonify({'status': 'error', 'message': 'job_id not found'}), 404
+    # Allow downloads for jobs tracked in-memory or only present on disk
     out_dir = os.path.join(EVAL_OUTPUT_DIR, job_id)
-    file_path = os.path.join(out_dir, filename)
+    if not os.path.isdir(out_dir):
+        return jsonify({'status': 'error', 'message': 'job_id not found'}), 404
+
+    # Prevent path traversal by restricting to known filenames
+    allowed_files = {
+        'evaluation_report.html',
+        'evaluation_report.pdf',
+        'evaluation_results.json',
+        'evaluation_results.csv',
+        'failures.csv'
+    }
+    safe_name = os.path.basename(filename)
+    if safe_name not in allowed_files:
+        return jsonify({'status': 'error', 'message': 'file not allowed'}), 400
+
+    file_path = os.path.join(out_dir, safe_name)
     if not os.path.exists(file_path):
         return jsonify({'status': 'error', 'message': 'file not found'}), 404
+
     from flask import send_file
+    ext = os.path.splitext(safe_name)[1].lower()
+    
+    # Serve HTML inline with rewritten image paths
+    if ext == '.html':
+        with open(file_path, 'r', encoding='utf-8') as f:
+            html_content = f.read()
+        
+        # Replace relative image paths with API endpoints
+        # This handles: src="image.png" or src='image.png'
+        html_content = re.sub(
+            r'src=["\']([^"\']+\.(?:png|jpg|jpeg|gif|svg))["\']',
+            rf'src="/api/evaluate/img/{job_id}/\1"',
+            html_content,
+            flags=re.IGNORECASE
+        )
+        
+        return Response(html_content, mimetype='text/html')
+
+    # PDFs should be served inline when possible, but we send as attachment for reliable download
+    if ext == '.pdf':
+        return send_file(file_path, mimetype='application/pdf', as_attachment=True)
+
+    # JSON/CSV/other text files - send as attachment so browser downloads them
+    if ext in ('.json', '.csv'):
+        # choose mimetype
+        mtype = 'application/json' if ext == '.json' else 'text/csv'
+        return send_file(file_path, mimetype=mtype, as_attachment=True)
+
+    # Fallback
     return send_file(file_path, as_attachment=True)
 
 

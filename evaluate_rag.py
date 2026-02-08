@@ -14,12 +14,45 @@ from sklearn.metrics.pairwise import cosine_similarity
 from pathlib import Path
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
+from hybrid_rag_system import load_or_build_corpus, load_urls
 
 
 # -----------------------------
 # Utilities and Defaults
 # -----------------------------
 DEFAULT_MODEL = 'all-MiniLM-L6-v2'
+CORPUS_CACHE_DIR = os.path.join(os.path.dirname(__file__), r'data\corpus_cache')
+CHUNK_SIZE = 300
+CHUNK_OVERLAP = 50
+
+
+def initialize_corpus(corpus_cache_dir: str = CORPUS_CACHE_DIR, 
+                     model_name: str = DEFAULT_MODEL,
+                     force_rebuild: bool = False) -> Tuple[List[Dict], SentenceTransformer]:
+    """Initialize/load corpus for evaluation.
+    
+    Loads from cache if available, otherwise builds from URLs.
+    Returns: (chunks, model) for use in evaluation
+    """
+    print(f"[INFO] Initializing corpus for evaluation...")
+    print(f"[INFO] Cache directory: {corpus_cache_dir}")
+    
+    # Load URLs
+    urls = load_urls()
+    print(f"[INFO] Loaded {len(urls)} URLs")
+    
+    # Load or build corpus
+    chunks, embeddings, dense_idx, model, bm25, tokenized = load_or_build_corpus(
+        corpus_dir=corpus_cache_dir,
+        urls=urls,
+        chunk_size=CHUNK_SIZE,
+        overlap=CHUNK_OVERLAP,
+        force_rebuild=force_rebuild,
+        model_name=model_name
+    )
+    
+    print(f"[INFO] Corpus initialized with {len(chunks)} chunks")
+    return chunks, model
 
 
 def load_dataset(path: str) -> List[Dict]:
@@ -83,21 +116,22 @@ def source_coverage_score(retrieved_docs: List[Dict], true_sources: List[str], t
 
 def evaluate_dataset(
     dataset: List[Dict],
-    api_url: str,
+    api_url: str = None,
     init_url: Optional[str] = None,
     top_k: int = 5,
     model_name: str = DEFAULT_MODEL,
-    progress: bool = True
+    progress: bool = True,
+    query_fn: Optional[callable] = None
 ) -> Tuple[Dict, List[Dict]]:
     """Evaluate dataset against RAG API.
     Returns summary dict and list of per-question results.
     """
-    # Optionally initialize remote system
-    if init_url:
-        try:
-            requests.post(init_url, timeout=30)
-        except Exception:
-            pass
+    # Optionally initialize remote system --> No need to call initialize API as the corpus has been checked already before evaluation. 
+    # if init_url:
+    #     try:
+    #         requests.post(init_url, timeout=30)
+    #     except Exception:
+    #         pass
 
     model = SentenceTransformer(model_name)
 
@@ -123,9 +157,13 @@ def evaluate_dataset(
 
         start = time.time()
         try:
-            resp = requests.post(api_url, json={'query': question}, timeout=30)
-            result = resp.json()
-        except Exception as e:
+            if query_fn is not None:
+                # call provided local query function; it should return a dict like the API response
+                result = query_fn(question)
+            else:
+                resp = requests.post(api_url, json={'query': question}, timeout=30)
+                result = resp.json()
+        except Exception:
             # On API failure, record a placeholder
             result = {'answer': '', 'retrieved_chunks': [], 'response_time_seconds': 0}
         end = time.time()
@@ -301,6 +339,7 @@ def generate_reports(summary: Dict, detailed: List[Dict], out_dir: str, top_k: i
             fh.write(f'<td>{row.get("question")}</td>')
             fh.write(f'<td>{row.get("expected_answer")}</td>')
             fh.write(f'<td>{row.get("generated_answer")}</td>')
+            fh.write(f'<td>{row.get("mrr"):.3f}</td>')
             fh.write(f'<td>{row.get("semantic_similarity"):.3f}</td>')
             fh.write(f'<td>{row.get("token_overlap_ratio"):.3f}</td>')
             fh.write(f'<td>{row.get("source_coverage_score"):.3f}</td>')
@@ -308,8 +347,8 @@ def generate_reports(summary: Dict, detailed: List[Dict], out_dir: str, top_k: i
             fh.write('</tr>')
         fh.write('</table>')
 
-        # Detailed results table (all questions)
-        fh.write('<h2>Detailed Results Table</h2>')
+        # Detailed results table (all questions) --- > Not needed in case of detailed reports generated
+        '''fh.write('<h2>Detailed Results Table</h2>')
         fh.write('<table border="1" cellpadding="5"><tr><th>Question ID</th><th>Question</th><th>Ground Truth</th><th>Generated Answer</th><th>MRR</th><th>Token Overlap</th><th>Source Coverage</th><th>Time (s)</th></tr>')
         for _, row in df.iterrows():
             fh.write('<tr>')
@@ -322,19 +361,19 @@ def generate_reports(summary: Dict, detailed: List[Dict], out_dir: str, top_k: i
             fh.write(f'<td>{row.get("source_coverage_score"):.3f}</td>')
             fh.write(f'<td>{row.get("latency"):.2f}</td>')
             fh.write('</tr>')
-        fh.write('</table>')
+        fh.write('</table>')'''
 
-        # Detailed justification for custom metrics
+        # Detailed justification for custom metrics for Precision and Hit
         fh.write('<h2>Custom Metrics: Justification & Methodology</h2>')
-        fh.write('<h3>Token Overlap Ratio (TO)</h3>')
-        fh.write('<p><strong>Why chosen:</strong> Simple proxy for content overlap between generated and reference answers; useful when exact phrasing differs but content words overlap.</p>')
-        fh.write('<p><strong>Calculation:</strong> TO = (# shared tokens) / (# tokens in reference). Tokens lowercased and split on whitespace.</p>')
-        fh.write('<p><strong>Interpretation:</strong> Values near 1.0 indicate high overlap; near 0 indicate little overlap. Use with semantic similarity for robust interpretation.</p>')
+        fh.write('<h3>1. Precision@K</h3>')
+        fh.write('<ul><strong>Why chosen:</strong> This directly measures the relevance density within the limited top‑K chunks that the generator actually uses. In a hybrid RAG setup, retrieval noise dilutes context; Precision@K quantifies that dilution and helps tune retrieval to maximize relevant evidence in the prompt.</ul>')
+        fh.write('<ul><strong>Calculation:</strong> For each question, count how many of the top K retrieved chunks match any ground‑truth source (source_match). Then divide by K.</ul>')
+        fh.write('<ul><strong>Formula:</strong> Precision@K = (# relevant retrieved in top K) / K </ul>')
 
-        fh.write('<h3>Source Coverage Score (SCS)</h3>')
-        fh.write('<p><strong>Why chosen:</strong> Measures whether retrieval fetches the ground-truth sources, indicating retrieval coverage.</p>')
-        fh.write('<p><strong>Calculation:</strong> SCS = (# unique ground-truth sources found in top-K retrieved docs) / (# unique ground-truth sources).</p>')
-        fh.write('<p><strong>Interpretation:</strong> Values near 1 indicate retrieval covered ground-truth sources; low values indicate missing evidence even if generation looks good.</p>')
+        fh.write('<h3>2. Hit@K</h3>')
+        fh.write('<ul><strong>Why chosen:</strong>  This captures the minimum viable retrieval success: whether at least one relevant chunk was found in the top‑K. It’s a strong gating signal for generation quality—if Hit@K is 0, the answer is likely ungrounded regardless of rank distribution. </ul>')
+        fh.write('<ul><strong>Calculation:</strong> If there is at least one relevant chunk in the top K, the score is 1, otherwise 0. Aggregate by averaging over questions. </ul>')
+        fh.write('<ul><strong>Interpretation:</strong> Hit@K = 1 if (# relevant retrieved in top K) > 0 else 0 </ul>')
 
         fh.write('</body></html>')
 
@@ -403,9 +442,26 @@ if __name__ == '__main__':
     parser.add_argument('--init', type=str, default='http://127.0.0.1:5000/api/initialize')
     parser.add_argument('--topk', type=int, default=5)
     parser.add_argument('--out', type=str, default='evaluations/last')
+    parser.add_argument('--force-rebuild-corpus', action='store_true', 
+                       help='Force rebuild corpus cache from URLs')
     args = parser.parse_args()
 
+    # Initialize corpus (loads from cache or builds from URLs)
+    print(f"\n[EVAL] Initializing corpus (cache: {CORPUS_CACHE_DIR})...")
+    try:
+        chunks, model = initialize_corpus(
+            corpus_cache_dir=CORPUS_CACHE_DIR,
+            model_name=DEFAULT_MODEL,
+            force_rebuild=args.force_rebuild_corpus
+        )
+        print(f"[EVAL] ✓ Corpus ready with {len(chunks)} chunks\n")
+    except Exception as e:
+        print(f"[EVAL] ✗ Failed to initialize corpus: {e}")
+        import sys
+        sys.exit(1)
+
+    # Run evaluation
     data = load_dataset(args.dataset)
     summary, detailed = evaluate_dataset(data, api_url=args.api, init_url=args.init, top_k=args.topk)
     paths = generate_reports(summary, detailed, args.out, top_k=args.topk)
-    print('Reports generated in', args.out)
+    print(f"\n[EVAL] Reports generated in {args.out}")
